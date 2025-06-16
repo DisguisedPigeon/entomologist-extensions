@@ -1,0 +1,82 @@
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+
+  <!--This returns ./styles.css-->
+  <link href="/dev/entomologist/css" rel="stylesheet">
+  <meta content="width=device-width, initial-scale=1.0" name="viewport">
+
+  <!--In the rendered file, this script is a minified version of ./script.js-->
+  <script />
+  <title>Entomologist</title>
+</head>
+
+<body>
+  <header>
+    <nav>
+      <a class="title" href="#">
+        Entomologist UI
+      </a>
+    </nav>
+  </header>
+  <main class="items-center flex flex-col w-full">
+    <section>
+      <table class="w-full text-sm text-left rtl:text-right table-fixed">
+
+        <!--Table head-->
+        <thead class="text-xs uppercase bg-underwater_blue">
+          <tr>
+            <th class="id" scope="col">
+              Id
+            </th>
+            <th class="level" scope="col">
+              Level
+            </th>
+            <th scope="col">
+              Message
+            </th>
+            <th class="occurrence" scope="col">
+              Last_occurrence
+            </th>
+          </tr>
+        </thead>
+
+        <!--Table body-->
+        <tbody>
+
+          <!--Example row-->
+          <tr class="border-b bg-gray-900">
+
+            <!--ID Column-->
+            <td class="id" scope="row">3</td>
+
+            <!--Example row (n-th level)-->
+            <td scope="row">
+              <div class="flex-row" id="nlevel">
+
+                <!--Text-->
+                <div class="block" id="nlevel">"info"</div>
+
+                <!--Copy button-->
+                <button onclick="copy('0level')">
+                  <svg xmlns="http://www.w3.org/2000/svg" class="bi bi-clipboard" fill="currentColor" height="100%"
+                    viewBox="0 0 16 16" width="100%">
+                    <path xmlns="http://www.w3.org/2000/svg"
+                      d="M4 1.5H3a2 2 0 0 0-2 2V14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V3.5a2 2 0 0 0-2-2h-1v1h1a1 1 0 0 1 1 1V14a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1h1z">
+                    </path>
+                    <path xmlns="http://www.w3.org/2000/svg"
+                      d="M9.5 1a.5.5 0 0 1 .5.5v1a.5.5 0 0 1-.5.5h-3a.5.5 0 0 1-.5-.5v-1a.5.5 0 0 1 .5-.5zm-3-1A1.5 1.5 0 0 0 5 1.5v1A1.5 1.5 0 0 0 6.5 4h3A1.5 1.5 0 0 0 11 2.5v-1A1.5 1.5 0 0 0 9.5 0z">
+                    </path>
+                  </svg>
+                </button>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+  </main>
+</body>
+
+</html>

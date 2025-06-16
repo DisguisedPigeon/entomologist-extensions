@@ -18,7 +18,16 @@
             gleam
             beamMinimal27Packages.erlang
             beamMinimal27Packages.rebar3
+
+            # For ui css compilation and development
+            tailwindcss-language-server
+            tailwindcss_4
+            vscode-langservers-extracted
+
+            nodejs_24
+
             gitmoji-cli
+            watchexec
           ] ++ lib.optional stdenv.isLinux inotify-tools;
         };
       });

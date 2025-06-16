@@ -3,6 +3,9 @@
 [![Package Version](https://img.shields.io/hexpm/v/entomologist_extensions)](https://hex.pm/packages/entomologist_extensions)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3)](https://hexdocs.pm/entomologist_extensions/)
 
+> [!NOTE]
+> The resources/ folder is just a non-minified version of the served files. They are not actually served.
+
 ```sh
 gleam add entomologist_extensions@1
 ```
