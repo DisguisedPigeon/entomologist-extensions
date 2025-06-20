@@ -1,19 +1,16 @@
 name = "entomologist_extensions"
 version = "0.0.0"
 
-# Fill out these fields if you intend to generate HTML documentation or publish
-# your project to the Hex package manager.
-#
-# description = ""
-# licences = ["Apache-2.0"]
-# repository = { type = "github", user = "", repo = "" }
-# links = [{ title = "Website", href = "" }]
-#
-# For a full reference of all the available options, you can have a look at
-# https://gleam.run/writing-gleam/gleam-toml/.
+description = "🧰🐛 Useful extensions for entomologist"
+licences = ["Apache-2.0"]
+repository = { type = "github", user = "DisguisedPigeon", repo = "entomologist-extensions" }
+links = [{ title = "Entomologist", href = "https://www.github.com/DisguisedPigeon/entomologist" }]
+
+target = "erlang"
+
 
 [dependencies]
-entomologist = { git = "git@github.com:DisguisedPigeon/entomologist.git", ref="main" }
+entomologist = { git = "https://github.com/DisguisedPigeon/entomologist.git", ref="main" }
 lustre = ">= 5.1.1 and < 6.0.0"
 wisp = ">= 1.7.0 and < 2.0.0"
 gleam_http = ">= 4.0.0 and < 5.0.0"
