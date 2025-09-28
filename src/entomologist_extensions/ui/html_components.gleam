@@ -2,30 +2,25 @@ import entomologist.{type ErrorLog, type Occurrence, ErrorLog}
 import gleam/int
 import gleam/list
 import gleam/option
-import gleam/string_tree
 import lustre/attribute.{attribute}
 import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/svg
 
 /// Returns a string_tree with the rendered HTML for the given error list
-pub fn wisp_logs(logs: List(ErrorLog)) -> string_tree.StringTree {
+pub fn wisp_logs(logs: List(ErrorLog)) -> Element(Nil) {
   root_template([header(""), logs_main(logs)])
-  |> element.to_string_tree
-  |> string_tree.prepend("<!DOCTYPE html>")
 }
 
 /// Returns a string_tree with the rendered HTML for the given error and its occurrences
 pub fn wisp_occurrences(
   occurrences: List(Occurrence),
   error: ErrorLog,
-) -> string_tree.StringTree {
+) -> Element(Nil) {
   root_template([
     header("Log " <> int.to_string(error.id)),
     occurrences_main(occurrences, error),
   ])
-  |> element.to_string_tree
-  |> string_tree.prepend("<!DOCTYPE html>")
 }
 
 fn root_template(body) -> Element(Nil) {

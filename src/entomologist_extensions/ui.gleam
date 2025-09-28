@@ -5,6 +5,7 @@ import gleam/http/request.{Request}
 import gleam/int
 import gleam/result
 import gleam/string_tree
+import lustre/element
 import pog.{type Connection}
 import wisp
 
@@ -53,6 +54,8 @@ pub fn wisp_middleware(
       case entomologist.show(connection) {
         Ok(data) -> {
           html_components.wisp_logs(data)
+          |> element.to_string_tree
+          |> string_tree.prepend("<!DOCTYPE html>")
           |> wisp.html_response(200)
         }
         _ -> wisp.internal_server_error()
@@ -62,13 +65,15 @@ pub fn wisp_middleware(
       {
         use id <- result.try(int.parse(id))
         use error <- result.try(
-          entomologist.error_data(id, connection)
+          entomologist.log_data(id, connection)
           |> result.map_error(fn(_) { Nil }),
         )
 
         case entomologist.occurrences(id, connection) {
           Ok(l) ->
             html_components.wisp_occurrences(l, error)
+            |> element.to_string_tree
+            |> string_tree.prepend("<!DOCTYPE html>")
             |> wisp.html_response(200)
             |> Ok
           Error(s) -> {
