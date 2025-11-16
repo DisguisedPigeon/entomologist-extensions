@@ -3,13 +3,12 @@ import entomologist_extensions/ui/html_components
 import gleam/http
 import gleam/http/request.{Request}
 import gleam/int
+import gleam/list
+import gleam/option.{Some}
 import gleam/result
-import gleam/string_tree
 import lustre/element
 import pog.{type Connection}
 import wisp
-
-//Routes defined
 
 /// Middleware to intercept http requests to entomologist specific paths
 ///
@@ -44,18 +43,21 @@ pub fn wisp_middleware(
       wisp.response(200)
       |> wisp.set_header("content-type", "text/css")
       |> wisp.set_body(
-        string_tree.from_string(css)
+        css
         |> wisp.Text,
       )
       |> wisp.set_body(wisp.File(
         "../entomologist_extensions/resources/styles.css",
+        limit: option.None,
+        offset: 0,
       ))
     ["dev", "entomologist"], Request(method: http.Get, ..) ->
       case entomologist.show(connection) {
         Ok(data) -> {
-          html_components.wisp_logs(data)
-          |> element.to_string_tree
-          |> string_tree.prepend("<!DOCTYPE html>")
+          {
+            "<!DOCTYPE html>"
+            <> html_components.wisp_logs(data) |> element.to_string
+          }
           |> wisp.html_response(200)
         }
         _ -> wisp.internal_server_error()
@@ -71,9 +73,10 @@ pub fn wisp_middleware(
 
         case entomologist.occurrences(id, connection) {
           Ok(l) ->
-            html_components.wisp_occurrences(l, error)
-            |> element.to_string_tree
-            |> string_tree.prepend("<!DOCTYPE html>")
+            {
+              "<!DOCTYPE html>"
+              <> html_components.wisp_occurrences(l, error) |> element.to_string
+            }
             |> wisp.html_response(200)
             |> Ok
           Error(s) -> {
@@ -84,24 +87,96 @@ pub fn wisp_middleware(
       }
       |> result.unwrap(wisp.not_found())
 
-    //  TODO : Error occurrences search
+    //  TODO : Occurrences search
     ["dev", "entomologist", id], Request(method: http.Post, ..) -> {
       let assert Ok(_id) = int.parse(id)
-      todo
+      wisp.unsupported_media_type([])
       // use data <- wisp.require_form(request)
       // case entomologist.search {
       //
       // }
     }
-    //  TODO : Post search
     ["dev", "entomologist"], Request(method: http.Post, ..) -> {
-      todo
-      //use data <- wisp.require_form(request)
-      //case entomologist.search {
-      //
-      //}
+      use data <- wisp.require_form(request)
+      echo data
+
+      case
+        data.values
+        |> list.fold(entomologist.default_search_data(), extract_field)
+        |> entomologist.search(connection, _)
+      {
+        Ok(logs) ->
+          {
+            "<!DOCTYPE html>"
+            <> html_components.wisp_logs(logs)
+            |> element.to_string
+          }
+          |> wisp.html_response(200)
+        Error(_) -> wisp.internal_server_error()
+      }
     }
     _, _ -> callback()
+  }
+}
+
+fn extract_field(
+  acc: entomologist.SearchData,
+  value: #(String, String),
+) -> entomologist.SearchData {
+  case value {
+    #(_, "") -> acc
+    #("arity", arity) -> {
+      use arity <- result_guard(int.parse(arity), acc)
+      entomologist.SearchData(..acc, arity: Some(arity))
+    }
+    #("file", file) -> entomologist.SearchData(..acc, file: Some(file))
+    #("function", function) ->
+      entomologist.SearchData(..acc, function: Some(function))
+    #("last_occurrence", last_occurrence) -> {
+      use last_occurrence <- result_guard(int.parse(last_occurrence), acc)
+      entomologist.SearchData(..acc, last_occurrence: Some(last_occurrence))
+    }
+    #("level", level) -> {
+      use level <- result_guard(parse_level(level), acc)
+      entomologist.SearchData(..acc, level: Some(level))
+    }
+    #("line", line) -> {
+      use line <- result_guard(int.parse(line), acc)
+      entomologist.SearchData(..acc, line: Some(line))
+    }
+    #("module", module) -> entomologist.SearchData(..acc, module: Some(module))
+    #("resolved", "resolved") ->
+      entomologist.SearchData(..acc, resolved: Some(True))
+    #("resolved", "unresolved") ->
+      entomologist.SearchData(..acc, resolved: Some(False))
+    #("snoozed", "snoozed") ->
+      entomologist.SearchData(..acc, snoozed: Some(True))
+    #("snoozed", "awake") ->
+      entomologist.SearchData(..acc, snoozed: Some(False))
+      // TODO: message filtering
+    #("message", _message) -> acc
+    _ -> acc
+  }
+}
+
+fn parse_level(level: String) -> Result(entomologist.Level, Nil) {
+  case level {
+    "alert" -> Ok(entomologist.Alert)
+    "critical" -> Ok(entomologist.Critical)
+    "debug" -> Ok(entomologist.Debug)
+    "emergency" -> Ok(entomologist.Emergency)
+    "error" -> Ok(entomologist.ErrorLevel)
+    "info" -> Ok(entomologist.Info)
+    "notice" -> Ok(entomologist.Notice)
+    "warning" -> Ok(entomologist.Warning)
+    _ -> Error(Nil)
+  }
+}
+
+fn result_guard(result: Result(a, b), return: c, cb: fn(a) -> c) -> c {
+  case result {
+    Ok(a) -> cb(a)
+    Error(_) -> return
   }
 }
 

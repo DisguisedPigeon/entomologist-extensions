@@ -7,12 +7,12 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/element/svg
 
-/// Returns a string_tree with the rendered HTML for the given error list
+/// Returns an element with the rendered HTML for the given error list
 pub fn wisp_logs(logs: List(ErrorLog)) -> Element(Nil) {
   root_template([header(""), logs_main(logs)])
 }
 
-/// Returns a string_tree with the rendered HTML for the given error and its occurrences
+/// Returns an element with the rendered HTML for the given error and its occurrences
 pub fn wisp_occurrences(
   occurrences: List(Occurrence),
   error: ErrorLog,
@@ -31,6 +31,12 @@ fn root_template(body) -> Element(Nil) {
         attribute.rel("stylesheet"),
         attribute.href("/dev/entomologist/css"),
       ]),
+      html.link([
+        attribute.href(
+          "https://cdn.jsdelivr.net/npm/nerdfonts-web@1.0.1/nf.min.css",
+        ),
+        attribute.rel("stylesheet"),
+      ]),
       html.meta([
         attribute("content", "width=device-width, initial-scale=1.0"),
         attribute.name("viewport"),
@@ -48,13 +54,19 @@ fn root_template(body) -> Element(Nil) {
 fn header(text: String) -> Element(Nil) {
   html.header([], [
     html.nav([], [
+      html.a(
+        [attribute.href("/dev/entomologist"), attribute.class("nf title")],
+        [
+          html.text(""),
+        ],
+      ),
       html.a([attribute.href("/dev/entomologist"), attribute.class("title")], [
-        html.text("󰦥 Entomologist UI"),
+        html.text("Entomologist UI"),
       ]),
       html.span([], [
         case text {
           "" -> html.text("")
-          _ -> html.text("- " <> text)
+          _ -> html.text(text)
         },
       ]),
     ]),
@@ -65,7 +77,7 @@ fn logs_main(logs: List(ErrorLog)) -> Element(Nil) {
   let post_target = "/dev/entomologist"
 
   html.main([], [
-    html.section([], [search_bar(post_target:)]),
+    html.section([attribute.class("topmost")], [search_bar(post_target:)]),
     html.section([], [logs_table(logs)]),
   ])
 }
@@ -74,11 +86,8 @@ fn occurrences_main(
   occurrences: List(Occurrence),
   error: ErrorLog,
 ) -> Element(Nil) {
-  let post_target = "/dev/entomologist/" <> int.to_string(error.id)
-
   html.main([], [
     html.section([], [error_description(error)]),
-    html.section([], [search_bar(post_target:)]),
     html.section([], [occurrences_table(occurrences)]),
   ])
 }
@@ -112,7 +121,7 @@ fn error_description(error: ErrorLog) -> Element(Nil) {
           ],
           [html.text("Level: ")],
         ),
-        level_to_element(level),
+        ..level_to_element(level)
       ]),
       html.p([], [html.text("Module: " <> module)]),
       html.p([], [html.text("Function: " <> function)]),
@@ -125,12 +134,12 @@ fn error_description(error: ErrorLog) -> Element(Nil) {
     ]),
     html.div([], [
       case resolved {
-        True -> html.h1([attribute.class("ok")], [html.text("󱜙 Resolved")])
-        False -> html.h1([attribute.class("nok")], [html.text(" Unresolved")])
+        True -> html.h1([attribute.class("nf ok")], [html.text("󱜙 Resolved")])
+        False -> html.h1([attribute.class("nf nok")], [html.text(" Unresolved")])
       },
       case snoozed {
-        True -> html.p([attribute.class("eepy")], [html.text("Sleeping 󰒲 ")])
-        False -> html.p([attribute.class("aware")], [html.text("Not slept 󰒳 ")])
+        True -> html.p([attribute.class("nf eepy")], [html.text("Sleeping 󰒲 ")])
+        False -> html.p([attribute.class("nf aware")], [html.text("Not slept 󰒳 ")])
       },
     ]),
   ])
@@ -146,7 +155,9 @@ fn occurrences_table(occurrences: List(Occurrence)) -> Element(Nil) {
         html.th([attribute("scope", "col"), attribute.class("timestamp")], [
           html.text(" Timestamp "),
         ]),
-        html.th([attribute("scope", "col")], [html.text(" Full_log ")]),
+        html.th([attribute("scope", "col"), attribute.class("full")], [
+          html.text(" Full_log "),
+        ]),
       ]),
     ]),
     html.tbody(
@@ -181,7 +192,9 @@ fn logs_table(logs: List(ErrorLog)) -> Element(Nil) {
         html.th([attribute("scope", "col"), attribute.class("level")], [
           html.text(" Level "),
         ]),
-        html.th([attribute("scope", "col")], [html.text(" Message ")]),
+        html.th([attribute("scope", "col"), attribute.class("message-header")], [
+          html.text(" Message "),
+        ]),
         html.th([attribute("scope", "col"), attribute.class("occurrence")], [
           html.text(" Last_occurrence "),
         ]),
@@ -211,34 +224,31 @@ fn occurrence_id_cell(el: String) -> Element(Nil) {
 }
 
 fn log_id_cell(el: String) -> Element(Nil) {
-  html.td([attribute.class("id"), attribute("scope", "row")], [
+  html.td([attribute.class("id"), attribute.scope("row")], [
     html.a([attribute.href("/dev/entomologist/" <> el)], [html.text(el)]),
   ])
 }
 
-fn level_cell(el: Element(Nil), id: Int) -> Element(Nil) {
+fn level_cell(el: List(Element(Nil)), id: Int) -> Element(Nil) {
   html.td([attribute("scope", "row")], [
     html.div(
       [
-        attribute.class("flex-row expand"),
+        attribute.class("level flex-row flex-stretch"),
         attribute.id(int.to_string(id) <> "level"),
       ],
-      [
-        html.div(
-          [attribute.class("block"), attribute.id(int.to_string(id) <> "level")],
-          [el],
-        ),
-        html.button(
-          [
-            attribute.class("copy"),
-            attribute(
-              "onclick",
-              "copy('" <> int.to_string(id) <> "level" <> "')",
-            ),
-          ],
-          [svg_clipboard()],
-        ),
-      ],
+      el
+        |> list.append([
+          html.button(
+            [
+              attribute.class("copy"),
+              attribute(
+                "onclick",
+                "copy('" <> int.to_string(id) <> "level" <> "')",
+              ),
+            ],
+            [html.i([attribute.class("nf")], [html.text("")])],
+          ),
+        ]),
     ),
   ])
 }
@@ -271,22 +281,89 @@ fn search_bar(post_target dest: String) -> Element(Nil) {
   // I extracted some of the html attributes clear up the ones related to logic.
   // I'll add more filters later
 
-  let form_attributes = [attribute.action(dest), attribute.method("post")]
+  let form_attributes = [
+    attribute.action(dest),
+    attribute.method("post"),
+  ]
+
   let text_attributes = [
     attribute.class("search_bar"),
     attribute.type_("text"),
     attribute.placeholder("Search"),
   ]
-  let button_attributes = [
-    attribute.class("search_button"),
-    attribute.type_("submit"),
-  ]
 
   html.form([attribute.id("search"), ..form_attributes], [
-    html.input([attribute.name("search_text"), ..text_attributes]),
-    html.button([attribute.for("search"), ..button_attributes], [
-      html.text("Search"),
+    html.textarea([attribute.class("message"), ..text_attributes], ""),
+    html.div([attribute.class("filters")], [
+      html.select([attribute.name("level"), attribute.class("field")], [
+        html.option([attribute.value("")], "Choose a level"),
+        html.option([attribute.value("alert")], "Alert"),
+        html.option([attribute.value("critical")], "Critical"),
+        html.option([attribute.value("debug")], "Debug"),
+        html.option([attribute.value("emergency")], "Emergency"),
+        html.option([attribute.value("error")], "Error"),
+        html.option([attribute.value("info")], "Info"),
+        html.option([attribute.value("notice")], "Notice"),
+        html.option([attribute.value("warning")], "Warning"),
+      ]),
+      html.input([
+        attribute.name("module"),
+        attribute.type_("text"),
+        attribute.placeholder("Module name"),
+        attribute.class("field"),
+      ]),
+      html.input([
+        attribute.name("function"),
+        attribute.type_("text"),
+        attribute.placeholder("Function name"),
+        attribute.class("field"),
+      ]),
+      html.input([
+        attribute.name("arity"),
+        attribute.type_("number"),
+        attribute.style("appearance", "textfield"),
+        attribute.class("field"),
+        attribute.placeholder("Function arity"),
+      ]),
+      html.input([
+        attribute.name("file"),
+        attribute.type_("text"),
+        attribute.class("field"),
+        attribute.placeholder("File of origin"),
+      ]),
+      html.input([
+        attribute.name("line"),
+        attribute.class("field"),
+        attribute.type_("number"),
+        attribute.style("appearance", "textfield"),
+        attribute.placeholder("Line number"),
+      ]),
+      // TODO: Substitute with range
+      // https://github.com/DisguisedPigeon/entomologist/issues/7#issuecomment-3536768601
+      html.input([
+        attribute.name("last_occurrence"),
+        attribute.type_("number"),
+        attribute.style("appearance", "textfield"),
+        attribute.class("field"),
+        attribute.placeholder("Timestamp"),
+      ]),
+      html.select([attribute.class("field"), attribute.name("resolved")], [
+        html.option([attribute.value("unresolved")], "Unresolved"),
+        html.option([attribute.value("resolved")], "Resolved"),
+      ]),
+      html.select([attribute.class("field"), attribute.name("snoozed")], [
+        html.option([attribute.value("awake")], "Not snoozed"),
+        html.option([attribute.value("snoozed")], "Snoozed"),
+      ]),
     ]),
+    html.button(
+      [
+        attribute.for("search"),
+        attribute.class("submit"),
+        attribute.type_("submit"),
+      ],
+      [html.text("Search")],
+    ),
   ])
 }
 
@@ -317,23 +394,39 @@ fn svg_clipboard() {
   )
 }
 
-fn level_to_element(level: entomologist.Level) -> Element(Nil) {
-  let remove_spacing = "nopad nomar "
-
-  let gen_element = fn(level: String, emoji: String) -> Element(Nil) {
-    html.p([attribute.class(remove_spacing <> level)], [
-      html.text(emoji <> level),
-    ])
+fn level_to_element(level: entomologist.Level) -> List(Element(Nil)) {
+  let gen_element = fn(level: String, class: String, emoji: String) -> List(
+    Element(Nil),
+  ) {
+    [
+      html.p(
+        [
+          attribute.class("nf nopad nomar " <> class),
+          attribute.style("margin-right", ".5rem"),
+        ],
+        [
+          html.text(emoji),
+        ],
+      ),
+      html.p(
+        [
+          attribute.class("nopad nomar " <> class),
+        ],
+        [
+          html.b([], [html.text(level)]),
+        ],
+      ),
+    ]
   }
 
   case level {
-    entomologist.Emergency -> gen_element("emergency", "󱐋 ")
-    entomologist.Alert -> gen_element("alert", "󱐋 ")
-    entomologist.Critical -> gen_element("critical", "󱐋 ")
-    entomologist.ErrorLevel -> gen_element("error", "󱐋 ")
-    entomologist.Warning -> gen_element("warning", " ")
-    entomologist.Notice -> gen_element("notice", " ")
-    entomologist.Info -> gen_element("info", " ")
-    entomologist.Debug -> gen_element("debug", " ")
+    entomologist.Emergency -> gen_element("emergency", "red", "󱐋 ")
+    entomologist.Alert -> gen_element("alert", "red", "󱐋 ")
+    entomologist.Critical -> gen_element("critical", "red", "󱐋 ")
+    entomologist.ErrorLevel -> gen_element("error", "red", "󱐋 ")
+    entomologist.Warning -> gen_element("warning", "yellow", " ")
+    entomologist.Notice -> gen_element("notice", "blue", " ")
+    entomologist.Info -> gen_element("info", "blue", " ")
+    entomologist.Debug -> gen_element("debug", "green", " ")
   }
 }
