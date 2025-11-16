@@ -135,11 +135,13 @@ fn error_description(error: ErrorLog) -> Element(Nil) {
     html.div([], [
       case resolved {
         True -> html.h1([attribute.class("nf ok")], [html.text("󱜙 Resolved")])
-        False -> html.h1([attribute.class("nf nok")], [html.text(" Unresolved")])
+        False ->
+          html.h1([attribute.class("nf nok")], [html.text(" Unresolved")])
       },
       case snoozed {
         True -> html.p([attribute.class("nf eepy")], [html.text("Sleeping 󰒲 ")])
-        False -> html.p([attribute.class("nf aware")], [html.text("Not slept 󰒳 ")])
+        False ->
+          html.p([attribute.class("nf aware")], [html.text("Not slept 󰒳 ")])
       },
     ]),
   ])

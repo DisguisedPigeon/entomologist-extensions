@@ -153,7 +153,7 @@ fn extract_field(
       entomologist.SearchData(..acc, snoozed: Some(True))
     #("snoozed", "awake") ->
       entomologist.SearchData(..acc, snoozed: Some(False))
-      // TODO: message filtering
+    // TODO: message filtering
     #("message", _message) -> acc
     _ -> acc
   }
