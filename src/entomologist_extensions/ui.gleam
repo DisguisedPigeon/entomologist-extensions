@@ -80,7 +80,7 @@ pub fn wisp_middleware(
             |> wisp.html_response(200)
             |> Ok
           Error(s) -> {
-            echo s
+            echo "Errored with data: " <> s
             Error(Nil)
           }
         }
@@ -125,6 +125,8 @@ fn extract_field(
 ) -> entomologist.SearchData {
   case value {
     #(_, "") -> acc
+    #("message", message) ->
+      entomologist.SearchData(..acc, message: Some(message))
     #("arity", arity) -> {
       use arity <- result_guard(int.parse(arity), acc)
       entomologist.SearchData(..acc, arity: Some(arity))

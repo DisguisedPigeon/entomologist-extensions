@@ -295,7 +295,10 @@ fn search_bar(post_target dest: String) -> Element(Nil) {
   ]
 
   html.form([attribute.id("search"), ..form_attributes], [
-    html.textarea([attribute.class("message"), ..text_attributes], ""),
+    html.textarea(
+      [attribute.class("message"), attribute.name("message"), ..text_attributes],
+      "",
+    ),
     html.div([attribute.class("filters")], [
       html.select([attribute.name("level"), attribute.class("field")], [
         html.option([attribute.value("")], "Choose a level"),
