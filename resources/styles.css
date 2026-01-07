@@ -87,20 +87,16 @@ th[class=error] {
   width: 5%;
 }
 
-th[class=occurrence] {
-  width: 10%;
-}
-
 th[class=timestamp] {
-  width: 10%;
+  width: 15%;
 }
 
 th[class=message-header] {
-  width: 75%;
+  width: 70%;
 }
 
 th[class=full] {
-  width: 85%;
+  width: 80%;
 }
 
 th {
@@ -162,12 +158,12 @@ button[class=copy] {
   margin-bottom: 0px;
 }
 
-.eepy {
+.shh {
   color: #89b4fa;
   margin-top: 1em;
 }
 
-.aware {
+.notshh {
   color: #f9e2af;
   margin-top: 1em;
 }
