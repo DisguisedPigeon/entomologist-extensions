@@ -1,5 +1,10 @@
+//// UI-related extensions.
+////
+//// This module contains the API for rendering entomologist databases.
+//// An example of usage can be found in [the readme of the repository](https://github.com/DisguisedPigeon/entomologist-extensions/tree/main/README.md)
+
 import entomologist
-import entomologist_extensions/ui/html_components
+import entomologist_extensions/internal/ui/html_components
 import gleam/http
 import gleam/http/request.{Request}
 import gleam/int
@@ -13,11 +18,15 @@ import wisp
 /// Middleware to intercept http requests to entomologist specific paths
 ///
 /// the following paths and methods are intercepted:
-/// - GET /dev/entomologist
-/// - POST /dev/entomologist
-/// - GET /dev/entomologist/css
-/// - GET /dev/entomologist/[number]
-/// - POST /dev/entomologist/[number]
+/// - GET /dev/entomologist: Renders a list with all logs
+///
+/// - POST /dev/entomologist: Submits a search query
+///
+/// - GET /dev/entomologist/[number]:
+///     Renders the details about a log, including occurrences of said log,
+///     details about the occurence, location...
+///
+/// - GET /dev/entomologist/css: Serves the CSS for the intercepted pages
 ///
 /// ## Usage example
 /// ```gleam
@@ -47,7 +56,7 @@ pub fn wisp_middleware(
         |> wisp.Text,
       )
       |> wisp.set_body(wisp.File(
-        "../entomologist_extensions/resources/styles.css",
+        "resources/styles.css",
         limit: option.None,
         offset: 0,
       ))
@@ -87,22 +96,15 @@ pub fn wisp_middleware(
       }
       |> result.unwrap(wisp.not_found())
 
-    //  TODO : Occurrences search
-    ["dev", "entomologist", id], Request(method: http.Post, ..) -> {
-      let assert Ok(_id) = int.parse(id)
-      wisp.unsupported_media_type([])
-      // use data <- wisp.require_form(request)
-      // case entomologist.search {
-      //
-      // }
-    }
     ["dev", "entomologist"], Request(method: http.Post, ..) -> {
       use data <- wisp.require_form(request)
-      echo data
 
       case
         data.values
-        |> list.fold(entomologist.default_search_data(), extract_field)
+        |> list.fold(
+          entomologist.default_search_data(),
+          extract_log_search_field,
+        )
         |> entomologist.search(connection, _)
       {
         Ok(logs) ->
@@ -119,7 +121,7 @@ pub fn wisp_middleware(
   }
 }
 
-fn extract_field(
+fn extract_log_search_field(
   acc: entomologist.SearchData,
   value: #(String, String),
 ) -> entomologist.SearchData {
@@ -151,12 +153,8 @@ fn extract_field(
       entomologist.SearchData(..acc, resolved: Some(True))
     #("resolved", "unresolved") ->
       entomologist.SearchData(..acc, resolved: Some(False))
-    #("snoozed", "snoozed") ->
-      entomologist.SearchData(..acc, snoozed: Some(True))
-    #("snoozed", "awake") ->
-      entomologist.SearchData(..acc, snoozed: Some(False))
-    // TODO: message filtering
-    #("message", _message) -> acc
+    #("muted", "muted") -> entomologist.SearchData(..acc, muted: Some(True))
+    #("muted", "unmuted") -> entomologist.SearchData(..acc, muted: Some(False))
     _ -> acc
   }
 }
