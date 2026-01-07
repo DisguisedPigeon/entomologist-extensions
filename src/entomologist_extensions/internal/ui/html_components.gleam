@@ -104,7 +104,8 @@ fn error_description(error: ErrorLog) -> Element(Nil) {
     line:,
     resolved:,
     last_occurrence:,
-    snoozed:,
+    muted:,
+    tags:,
   ) = error
 
   html.div([attribute.class("error_details")], [
@@ -129,6 +130,12 @@ fn error_description(error: ErrorLog) -> Element(Nil) {
       html.p([], [html.text("File: " <> file)]),
       html.p([], [html.text("Line: " <> int.to_string(line))]),
       html.p([], [
+        html.text(
+          "Tags: "
+          <> list.fold(tags, "", with: fn(acc, tag) { acc <> " | " <> tag }),
+        ),
+      ]),
+      html.p([], [
         html.text("Last_occurrence: " <> int.to_string(last_occurrence)),
       ]),
     ]),
@@ -138,10 +145,10 @@ fn error_description(error: ErrorLog) -> Element(Nil) {
         False ->
           html.h1([attribute.class("nf nok")], [html.text(" Unresolved")])
       },
-      case snoozed {
-        True -> html.p([attribute.class("nf eepy")], [html.text("Sleeping 󰒲 ")])
+      case muted {
+        True -> html.p([attribute.class("nf shh")], [html.text("Muted  ")])
         False ->
-          html.p([attribute.class("nf aware")], [html.text("Not slept 󰒳 ")])
+          html.p([attribute.class("nf notshh")], [html.text("Not muted  ")])
       },
     ]),
   ])
@@ -174,12 +181,17 @@ fn occurrences_table(occurrences: List(Occurrence)) -> Element(Nil) {
 
 fn occurrence_row(el: Occurrence, id: Int) -> Element(Nil) {
   html.tr([], [
-    el.id |> int.to_string |> occurrence_id_cell,
-    cell(el.timestamp |> int.to_string, id, "message"),
-    case el.full_contents {
-      option.Some(e) -> e
-      option.None -> ""
-    }
+    int.to_string(el.id)
+      |> occurrence_id_cell,
+
+    int.to_string(el.timestamp)
+      |> html.text
+      |> list.wrap
+      |> cell(id, "message"),
+
+    option.unwrap(el.full_contents, "")
+      |> html.text
+      |> list.wrap
       |> cell(id, "occurrence"),
   ])
 }
@@ -197,7 +209,7 @@ fn logs_table(logs: List(ErrorLog)) -> Element(Nil) {
         html.th([attribute("scope", "col"), attribute.class("message-header")], [
           html.text(" Message "),
         ]),
-        html.th([attribute("scope", "col"), attribute.class("occurrence")], [
+        html.th([attribute("scope", "col"), attribute.class("timestamp")], [
           html.text(" Last_occurrence "),
         ]),
       ]),
@@ -214,10 +226,18 @@ fn logs_table(logs: List(ErrorLog)) -> Element(Nil) {
 
 fn log_row(log: ErrorLog, id: Int) -> Element(Nil) {
   html.tr([], [
-    log.id |> int.to_string |> log_id_cell,
-    log.level |> level_to_element |> level_cell(id),
-    cell(log.message, id, "message"),
-    log.last_occurrence |> int.to_string |> cell(id, "occurrence"),
+    int.to_string(log.id) |> log_id_cell,
+    level_to_element(log.level)
+      |> cell(id, "level"),
+
+    html.text(log.message)
+      |> list.wrap
+      |> cell(id, "message"),
+
+    int.to_string(log.last_occurrence)
+      |> html.text
+      |> list.wrap
+      |> cell(id, "occurrence"),
   ])
 }
 
@@ -231,31 +251,7 @@ fn log_id_cell(el: String) -> Element(Nil) {
   ])
 }
 
-fn level_cell(el: List(Element(Nil)), id: Int) -> Element(Nil) {
-  html.td([attribute("scope", "row")], [
-    html.div(
-      [
-        attribute.class("level flex-row flex-stretch"),
-        attribute.id(int.to_string(id) <> "level"),
-      ],
-      el
-        |> list.append([
-          html.button(
-            [
-              attribute.class("copy"),
-              attribute(
-                "onclick",
-                "copy('" <> int.to_string(id) <> "level" <> "')",
-              ),
-            ],
-            [html.i([attribute.class("nf")], [html.text("")])],
-          ),
-        ]),
-    ),
-  ])
-}
-
-fn cell(el: String, id: Int, ty: String) -> Element(Nil) {
+fn cell(el: List(Element(Nil)), id: Int, ty: String) -> Element(Nil) {
   html.td([attribute("scope", "row")], [
     html.div(
       [
@@ -264,8 +260,11 @@ fn cell(el: String, id: Int, ty: String) -> Element(Nil) {
       ],
       [
         html.div(
-          [attribute.class("block"), attribute.id(int.to_string(id) <> ty)],
-          [html.text(el)],
+          [
+            attribute.class("block"),
+            attribute.id(int.to_string(id) <> ty),
+          ],
+          el,
         ),
         html.button(
           [
@@ -356,9 +355,9 @@ fn search_bar(post_target dest: String) -> Element(Nil) {
         html.option([attribute.value("unresolved")], "Unresolved"),
         html.option([attribute.value("resolved")], "Resolved"),
       ]),
-      html.select([attribute.class("field"), attribute.name("snoozed")], [
-        html.option([attribute.value("awake")], "Not snoozed"),
-        html.option([attribute.value("snoozed")], "Snoozed"),
+      html.select([attribute.class("field"), attribute.name("muted")], [
+        html.option([attribute.value("unmuted")], "Not muted"),
+        html.option([attribute.value("muted")], "Muted"),
       ]),
     ]),
     html.button(
@@ -411,13 +410,6 @@ fn level_to_element(level: entomologist.Level) -> List(Element(Nil)) {
         ],
         [
           html.text(emoji),
-        ],
-      ),
-      html.p(
-        [
-          attribute.class("nopad nomar " <> class),
-        ],
-        [
           html.b([], [html.text(level)]),
         ],
       ),
@@ -425,10 +417,10 @@ fn level_to_element(level: entomologist.Level) -> List(Element(Nil)) {
   }
 
   case level {
-    entomologist.Emergency -> gen_element("emergency", "red", "󱐋 ")
-    entomologist.Alert -> gen_element("alert", "red", "󱐋 ")
-    entomologist.Critical -> gen_element("critical", "red", "󱐋 ")
-    entomologist.ErrorLevel -> gen_element("error", "red", "󱐋 ")
+    entomologist.Emergency -> gen_element("emergency", "red", " ")
+    entomologist.Alert -> gen_element("alert", "red", " ")
+    entomologist.Critical -> gen_element("critical", "red", " ")
+    entomologist.ErrorLevel -> gen_element("error", "red", " ")
     entomologist.Warning -> gen_element("warning", "yellow", " ")
     entomologist.Notice -> gen_element("notice", "blue", " ")
     entomologist.Info -> gen_element("info", "blue", " ")
