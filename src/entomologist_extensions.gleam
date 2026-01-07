@@ -1,7 +1,6 @@
-//// UI-related extensions.
+//// This module contains the extra entomologist functionality.
 ////
-//// This module contains the API for rendering entomologist databases.
-//// An example of usage can be found in [the readme of the repository](https://github.com/DisguisedPigeon/entomologist-extensions/tree/main/README.md)
+//// Examples of usage are linked in the function documentation if avaliable
 
 import entomologist
 import entomologist_extensions/internal/ui/html_components
@@ -28,20 +27,8 @@ import wisp
 ///
 /// - GET /dev/entomologist/css: Serves the CSS for the intercepted pages
 ///
-/// ## Usage example
-/// ```gleam
-/// import wisp.{type Request, type Response}
-/// import entomologist_extensions/ui
-///
-/// // type Context {
-/// //   Context(connection: pog.Connection, ...)
-/// // }
-///
-/// fn middlewares(request: Request, context: Context, callback: fn(Request) -> Response) -> Response {
-///   use <- ui.wisp_middleware(request, connection, callback)
-///   callback(request)
-/// }
-/// ```
+/// # Usage example
+/// [Wisp integration](https://hexdocs.pm/entomologist_extensions/wisp-integration.html)
 pub fn wisp_middleware(
   request: wisp.Request,
   connection: Connection,

@@ -1,5 +1,5 @@
 import entomologist
-import entomologist_extensions/ui
+import entomologist_extensions
 import gleam/erlang/process
 import gleam/option
 import gleam/otp/static_supervisor as supervisor
@@ -56,7 +56,7 @@ pub fn middleware(
 
   use req <- wisp.handle_head(req)
 
-  use <- ui.wisp_middleware(req, conn)
+  use <- entomologist_extensions.wisp_middleware(req, conn)
 
   handle_request(req)
 }

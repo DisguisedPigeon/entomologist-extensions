@@ -8,6 +8,10 @@ links = [{ title = "Entomologist", href = "https://www.github.com/DisguisedPigeo
 
 target = "erlang"
 
+[documentation]
+pages = [
+  { title = "Wisp integration", path = "wisp-integration.html", source = "docs/wisp_integration.md" }
+]
 
 [dependencies]
 entomologist = { git = "https://github.com/DisguisedPigeon/entomologist.git", ref="main" }
