@@ -4,12 +4,14 @@
 
 import entomologist
 import entomologist_extensions/internal/ui/html_components
+import gleam/float
 import gleam/http
 import gleam/http/request.{Request}
 import gleam/int
 import gleam/list
 import gleam/option.{Some}
 import gleam/result
+import gleam/time/timestamp
 import lustre/element
 import pog.{type Connection}
 import wisp
@@ -42,6 +44,7 @@ pub fn wisp_middleware(
         css
         |> wisp.Text,
       )
+      // TODO: Swap out with file contents
       |> wisp.set_body(wisp.File(
         "resources/styles.css",
         limit: option.None,
@@ -123,9 +126,27 @@ fn extract_log_search_field(
     #("file", file) -> entomologist.SearchData(..acc, file: Some(file))
     #("function", function) ->
       entomologist.SearchData(..acc, function: Some(function))
-    #("last_occurrence", last_occurrence) -> {
-      use last_occurrence <- result_guard(int.parse(last_occurrence), acc)
-      entomologist.SearchData(..acc, last_occurrence: Some(last_occurrence))
+    #("occurrence_range_start", occurrence_range_start) -> {
+      let occurrence_range_start =
+        timestamp.parse_rfc3339(occurrence_range_start <> "T00:00:00Z")
+      use occurrence_range_start <- result_guard(occurrence_range_start, acc)
+      let occurrence_range_start =
+        timestamp.to_unix_seconds(occurrence_range_start)
+        |> float.round
+        |> Some
+
+      entomologist.SearchData(..acc, occurrence_range_start:)
+    }
+    #("occurrence_range_end", occurrence_range_end) -> {
+      use occurrence_range_end <- result_guard(
+        timestamp.parse_rfc3339(occurrence_range_end <> "T00:00:00Z"),
+        acc,
+      )
+      let occurrence_range_end =
+        timestamp.to_unix_seconds(occurrence_range_end)
+        |> float.round
+        |> Some
+      entomologist.SearchData(..acc, occurrence_range_end:)
     }
     #("level", level) -> {
       use level <- result_guard(parse_level(level), acc)

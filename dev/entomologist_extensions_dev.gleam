@@ -1,5 +1,6 @@
 import entomologist
 import entomologist_extensions
+import gleam/dynamic
 import gleam/erlang/process
 import gleam/option
 import gleam/otp/static_supervisor as supervisor
@@ -69,6 +70,10 @@ pub fn handle_request(req: Request, db: pog.Connection) -> Response {
     ["crash"] -> {
       panic as "Oops"
     }
+    ["ye-olde-boom"] -> {
+      erl_error()
+      wisp.response(200)
+    }
     ["warn"] -> {
       logging.log(logging.Warning, "I sense a crash")
       wisp.response(200)
@@ -94,3 +99,6 @@ pub fn handle_request(req: Request, db: pog.Connection) -> Response {
     _ -> wisp.html_response("<h1>Hello, Joe!</h1>", 200)
   }
 }
+
+@external(erlang, "dev_ffi", "woah")
+fn erl_error() -> dynamic.Dynamic

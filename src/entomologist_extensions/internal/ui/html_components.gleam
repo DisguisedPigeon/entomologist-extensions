@@ -2,6 +2,8 @@ import entomologist.{type ErrorLog, type Occurrence, ErrorLog}
 import gleam/int
 import gleam/list
 import gleam/option
+import gleam/time/calendar
+import gleam/time/timestamp
 import lustre/attribute.{attribute}
 import lustre/element.{type Element}
 import lustre/element/html
