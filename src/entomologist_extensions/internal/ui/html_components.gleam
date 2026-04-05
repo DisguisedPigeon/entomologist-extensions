@@ -2,7 +2,6 @@ import entomologist.{type ErrorLog, type Occurrence, ErrorLog}
 import gleam/int
 import gleam/list
 import gleam/option
-import gleam/result
 import gleam/time/calendar
 import gleam/time/timestamp
 import lustre/attribute.{attribute}
@@ -227,16 +226,25 @@ fn log_box(log: ErrorLog) -> Element(Nil) {
           ],
         ),
       ]),
-      html.p([], [
-        html.text(
-          timestamp.from_unix_seconds(log.last_occurrence)
-          |> timestamp.to_rfc3339(calendar.utc_offset)
-          <> " ",
-        ),
-        attribute("onclick", "copy(\"" <> log.message <> "\")")
-          |> list.wrap()
-          |> html.button([svg_clipboard()]),
-      ]),
+      html.div(
+        [
+          attribute.style("justify-content", "space-between"),
+          attribute.class("cluster"),
+        ],
+        [
+          html.p([], [
+            html.text(
+              timestamp.from_unix_seconds(log.last_occurrence)
+              |> timestamp.to_rfc3339(calendar.utc_offset)
+              <> " ",
+            ),
+            attribute("onclick", "copy(\"" <> log.message <> "\")")
+              |> list.wrap()
+              |> html.button([svg_clipboard()]),
+          ]),
+          render_tags(log.tags),
+        ],
+      ),
     ]),
   ])
 }

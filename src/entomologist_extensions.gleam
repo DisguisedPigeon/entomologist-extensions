@@ -10,6 +10,7 @@ import gleam/http/request.{Request}
 import gleam/int
 import gleam/list
 import gleam/option.{Some}
+import gleam/string
 import gleam/time/timestamp
 import lustre/element
 import pog.{type Connection} as db
@@ -64,6 +65,7 @@ pub fn wisp_middleware(
       wisp.response(200)
       |> wisp.set_header("content-type", "text/css")
       |> wisp.set_body(wisp.Text(css))
+      |> wisp.set_body(wisp.File("resources/styles.css", 0, option.None))
 
     ["dev", "entomologist", id], Request(method: http.Get, ..) ->
       get_id(id, connection)
@@ -167,9 +169,18 @@ fn post_tag(id: String, request: Request, connection: Connection) -> Response {
 fn add_tag(tag_name: String, log_id: Int, connection: db.Connection) -> Response {
   case ent.add_tag(connection, log_id, tag_name) {
     Ok(Nil) -> wisp.redirect("/dev/entomologist/" <> int.to_string(log_id))
+    //Error() -> wisp.redirect("/dev/entomologist/" <> int.to_string(log_id))
     Error(str) -> {
-      wisp.log_warning(str)
-      wisp.internal_server_error()
+      let duplicate_response =
+        "Query: add_tag - Constraint violated: logtag_pkey"
+
+      case string.starts_with(str, duplicate_response) {
+        True -> wisp.redirect("/dev/entomologist/" <> int.to_string(log_id))
+        False -> {
+          wisp.log_warning(str)
+          wisp.internal_server_error()
+        }
+      }
     }
   }
 }
