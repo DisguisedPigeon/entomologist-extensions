@@ -294,6 +294,15 @@ svg {
   color: var(--accent-color)
 }
 
+.tag-box {
+  border: var(--s-5) solid var(--color);
+  background-color: var(--bg-color);
+  box-shadow: var(--s-3) var(--s-3) var(--accent-color);
+  padding: var(--s-1);
+  height: auto;
+  overflow: auto;
+}
+
 .unstyled-list {
   list-style-type: none;
   padding-inline-start: 0;
@@ -409,6 +418,33 @@ select {
 .search-txt {
   width: 75%;
   height: var(--s3);
+}
+
+.search-txt {
+  width: 75%;
+  height: var(--s3);
+}
+
+.fields-header {
+  padding: 0 var(--s1) var(--s1) var(--s1);
+  justify-content: space-between;
+}
+
+.round {
+  border-radius: 50%;
+  aspect-ratio: 1;
+  width: auto;
+  height: 100%;
+  font-size: calc(var(--size) / 1.5);
+}
+
+.flex {
+  display: flex;
+}
+
+.plus-button-flex {
+  width: var(--size);
+  justify-content: center;
 }
 
 
