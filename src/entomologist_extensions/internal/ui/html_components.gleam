@@ -2,6 +2,7 @@ import entomologist.{type ErrorLog, type Occurrence, ErrorLog}
 import gleam/int
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/time/calendar
 import gleam/time/timestamp
 import lustre/attribute.{attribute}
@@ -56,7 +57,7 @@ fn head() {
     ]),
     html.script(
       [],
-      "function copy(t){const e=document.getElementById(t).textContent;navigator.clipboard.writeText(e),alert('Copied '+e)}",
+      "function copy(t){navigator.clipboard.writeText(t),alert('Copied '+t)}",
     ),
     html.title([], "Entomologist"),
   ])
@@ -75,10 +76,10 @@ fn header(text: String) -> Element(Nil) {
 }
 
 fn logs_main(logs: List(ErrorLog)) -> Element(Nil) {
-  let post_target = "/dev/entomologist"
+  let target = "/dev/entomologist/search"
 
   html.main([attribute.class("stack center")], [
-    html.section([], [search_bar(post_target:)]),
+    html.section([], [search_bar(target:)]),
     html.section([], [log_list(logs)]),
   ])
 }
@@ -86,7 +87,52 @@ fn logs_main(logs: List(ErrorLog)) -> Element(Nil) {
 fn log_details(occurrences: List(Occurrence), error: ErrorLog) -> Element(Nil) {
   html.main([attribute.class("stack center")], [
     html.section([], [error_description(error)]),
+    html.section([], [tags(error)]),
     html.section([], [occurrences_list(occurrences)]),
+  ])
+}
+
+fn tags(error: ErrorLog) -> Element(Nil) {
+  let id = int.to_string(error.id)
+
+  html.hgroup([attribute.class("box fields-box")], [
+    html.div(
+      [
+        attribute.class("stack-row fields-header"),
+      ],
+      [
+        html.h4([], [
+          html.text("Tags "),
+        ]),
+
+        html.form(
+          [
+            attribute.class("stack-row"),
+            attribute.method("post"),
+            attribute.action("/dev/entomologist/" <> id <> "/tag"),
+          ],
+          [
+            html.input([
+              attribute.name("tag"),
+              attribute.class("form-field"),
+              attribute.type_("text"),
+              attribute.placeholder(" Tag name"),
+            ]),
+            html.button(
+              [
+                attribute.class("round flex plus-button-flex"),
+                attribute.type_("submit"),
+                attribute.style("--size", "var(--s2)"),
+              ],
+              [
+                html.text("󰐕"),
+              ],
+            ),
+          ],
+        ),
+      ],
+    ),
+    html.div([], [render_tags(error.tags)]),
   ])
 }
 
@@ -187,7 +233,7 @@ fn log_box(log: ErrorLog) -> Element(Nil) {
           |> timestamp.to_rfc3339(calendar.utc_offset)
           <> " ",
         ),
-        attribute("onclick", "copy(" <> int.to_string(log.id) <> ")")
+        attribute("onclick", "copy(\"" <> log.message <> "\")")
           |> list.wrap()
           |> html.button([svg_clipboard()]),
       ]),
@@ -195,14 +241,14 @@ fn log_box(log: ErrorLog) -> Element(Nil) {
   ])
 }
 
-fn search_bar(post_target dest: String) -> Element(Nil) {
+fn search_bar(target dest: String) -> Element(Nil) {
   // I extracted some of the html attributes clear up the ones related to logic.
   // I'll add more filters later
 
   html.form(
     [
       attribute.class("stack"),
-      attribute.method("post"),
+      attribute.method("get"),
       attribute.action(dest),
     ],
     [
@@ -347,7 +393,6 @@ fn render_details(log: entomologist.ErrorLog) {
     file:,
     line:,
     last_occurrence:,
-    tags:,
     ..,
   ) = log
 
@@ -365,13 +410,17 @@ fn render_details(log: entomologist.ErrorLog) {
     #("File", html.text(file)),
     #("Line", int.to_string(line) |> html.text()),
     #("Last_occurrence", int.to_string(last_occurrence) |> html.text()),
-    #("Tags", render_tags(tags)),
   ]
   |> render_fields
 }
 
 fn render_tags(tags: List(String)) -> Element(Nil) {
-  html.div([], list.map(tags, fn(tag) { html.text(tag) }))
+  html.div(
+    [attribute.class("cluster tags")],
+    list.map(tags, fn(tag) {
+      html.div([attribute.class("box tag-box")], [html.text(tag)])
+    }),
+  )
 }
 
 fn render_fields(fields: List(#(String, Element(Nil)))) -> List(Element(Nil)) {

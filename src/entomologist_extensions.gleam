@@ -2,7 +2,7 @@
 ////
 //// Examples of usage are linked in the function documentation if avaliable
 
-import entomologist
+import entomologist as ent
 import entomologist_extensions/internal/ui/html_components
 import gleam/float
 import gleam/http
@@ -10,11 +10,25 @@ import gleam/http/request.{Request}
 import gleam/int
 import gleam/list
 import gleam/option.{Some}
-import gleam/result
 import gleam/time/timestamp
 import lustre/element
-import pog.{type Connection}
-import wisp
+import pog.{type Connection} as db
+import wisp.{type Request, type Response}
+
+/// Auxiliary function.
+///
+/// Calls the return() callback when result has value `Error`.
+/// return should be small so callback can be handled by a `use`
+fn result_guard(
+  when_error result: Result(a, b),
+  return return: fn(b) -> c,
+  callback cb: fn(a) -> c,
+) -> c {
+  case result {
+    Ok(a) -> cb(a)
+    Error(v) -> return(v)
+  }
+}
 
 /// Middleware to intercept http requests to entomologist specific paths
 ///
@@ -27,136 +41,229 @@ import wisp
 ///     Renders the details about a log, including occurrences of said log,
 ///     details about the occurence, location...
 ///
+/// - POST /dev/entomologist/[number]/tag:
+///     Adds a tag to the given post.
+///
 /// - GET /dev/entomologist/css: Serves the CSS for the intercepted pages
 ///
 /// # Usage example
 /// [Wisp integration](https://hexdocs.pm/entomologist_extensions/wisp-integration.html)
 pub fn wisp_middleware(
-  request: wisp.Request,
+  request: Request,
   connection: Connection,
-  callback: fn() -> wisp.Response,
-) -> wisp.Response {
+  callback: fn() -> Response,
+) -> Response {
   case wisp.path_segments(request), request {
+    ["dev", "entomologist"], Request(method: http.Get, ..) ->
+      get_entomologist(connection)
+
+    ["dev", "entomologist", "search"], Request(method: http.Get, ..) ->
+      get_search(request, connection)
+
     ["dev", "entomologist", "css"], Request(method: http.Get, ..) ->
       wisp.response(200)
       |> wisp.set_header("content-type", "text/css")
       |> wisp.set_body(wisp.Text(css))
 
     ["dev", "entomologist", id], Request(method: http.Get, ..) ->
-      {
-        use id <- result.try(int.parse(id))
-        use error <- result.try(
-          entomologist.log_data(id, connection)
-          |> result.map_error(fn(_) { Nil }),
-        )
+      get_id(id, connection)
 
-        case entomologist.occurrences(id, connection) {
-          Ok(l) ->
-            {
-              "<!DOCTYPE html>"
-              <> html_components.wisp_occurrences(l, error) |> element.to_string
-            }
-            |> wisp.html_response(200)
-            |> Ok
-          Error(s) -> {
-            echo "Errored with data: " <> s
-            Error(Nil)
-          }
-        }
-      }
-      |> result.unwrap(wisp.not_found())
+    ["dev", "entomologist", id, "tag"], Request(method: http.Post, ..) ->
+      post_tag(id, request, connection)
 
-    ["dev", "entomologist"], Request(method: http.Post, ..) -> {
-      use data <- wisp.require_form(request)
-
-      case
-        data.values
-        |> list.fold(
-          entomologist.default_search_data(),
-          extract_log_search_field,
-        )
-        |> entomologist.search(connection, _)
-      {
-        Ok(logs) ->
-          {
-            "<!DOCTYPE html>"
-            <> html_components.wisp_logs(logs)
-            |> element.to_string
-          }
-          |> wisp.html_response(200)
-        Error(_) -> wisp.internal_server_error()
-      }
-    }
     _, _ -> callback()
   }
 }
 
-fn extract_log_search_field(
-  acc: entomologist.SearchData,
+fn get_entomologist(connection: Connection) -> Response {
+  use data <- result_guard(
+    when_error: ent.show(connection),
+    return: fn(message: String) -> Response {
+      wisp.log_warning(message)
+      wisp.internal_server_error()
+    },
+  )
+
+  let html =
+    html_components.wisp_logs(data)
+    |> element.to_string
+
+  wisp.html_response("<!DOCTYPE html>\n" <> html, 200)
+}
+
+fn get_search(request: Request, connection: Connection) -> Response {
+  let query = request.get_query(request)
+
+  use query <- result_guard(query, fn(_) {
+    wisp.bad_request("no query provided")
+  })
+
+  let logs =
+    list.fold(
+      over: query,
+      from: ent.default_search_data(),
+      with: extract_log_search_fields,
+    )
+    |> ent.search(connection, _)
+
+  use logs <- result_guard(
+    when_error: logs,
+    return: fn(message: String) -> Response {
+      wisp.log_warning(message)
+      wisp.internal_server_error()
+    },
+  )
+
+  let html =
+    html_components.wisp_logs(logs)
+    |> element.to_string
+
+  wisp.html_response("<!DOCTYPE html>\n" <> html, 200)
+}
+
+fn get_id(id: String, connection: Connection) -> Response {
+  use id <- result_guard(int.parse(id), return: fn(_) {
+    wisp.bad_request("id field is not a string")
+  })
+
+  use data <- result_guard(
+    ent.log_data(id, connection),
+    return: fn(message: String) {
+      wisp.log_warning("failed retrieving log data: " <> message)
+      wisp.internal_server_error()
+    },
+  )
+
+  use occurrences <- result_guard(
+    ent.occurrences(id, connection),
+    return: fn(message: String) {
+      wisp.log_warning("failed retrieving occurrences: " <> message)
+      wisp.internal_server_error()
+    },
+  )
+
+  let html =
+    html_components.wisp_occurrences(occurrences, data)
+    |> element.to_string
+
+  wisp.html_response("<!DOCTYPE html>\n" <> html, 200)
+}
+
+fn post_tag(id: String, request: Request, connection: Connection) -> Response {
+  use id: Int <- result_guard(
+    when_error: int.parse(id),
+    return: fn(_: Nil) -> Response { wisp.bad_request("id must be a number") },
+  )
+  use data <- wisp.require_form(request)
+
+  case data.values {
+    [#("tag", v)] -> add_tag(v, id, connection)
+    [_] -> wisp.bad_request("The tags should be encoded as tag=[NAME]")
+    [] -> wisp.bad_request("Some tag must be provided")
+    _ -> wisp.bad_request("Only a tag should be provided")
+  }
+}
+
+fn add_tag(tag_name: String, log_id: Int, connection: db.Connection) -> Response {
+  case ent.add_tag(connection, log_id, tag_name) {
+    Ok(Nil) -> wisp.redirect("/dev/entomologist/" <> int.to_string(log_id))
+    Error(str) -> {
+      wisp.log_warning(str)
+      wisp.internal_server_error()
+    }
+  }
+}
+
+fn extract_log_search_fields(
+  acc: ent.SearchData,
   value: #(String, String),
-) -> entomologist.SearchData {
+) -> ent.SearchData {
   case value {
     #(_, "") -> acc
-    #("message", message) ->
-      entomologist.SearchData(..acc, message: Some(message))
-    #("arity", arity) -> {
-      use arity <- result_guard(int.parse(arity), acc)
-      entomologist.SearchData(..acc, arity: Some(arity))
+    #("muted", "muted") -> ent.SearchData(..acc, muted: Some(True))
+    #("muted", "unmuted") -> ent.SearchData(..acc, muted: Some(False))
+    #("file", file) -> ent.SearchData(..acc, file: Some(file))
+    #("module", module) -> ent.SearchData(..acc, module: Some(module))
+    #("message", message) -> ent.SearchData(..acc, message: Some(message))
+    #("function", function) -> ent.SearchData(..acc, function: Some(function))
+    #("resolved", "resolved") -> ent.SearchData(..acc, resolved: Some(True))
+    #("resolved", "unresolved") -> ent.SearchData(..acc, resolved: Some(False))
+
+    #("level", level) -> {
+      use level <- result_guard(
+        when_error: parse_level(level),
+        return: fn(_) -> ent.SearchData { acc },
+      )
+
+      ent.SearchData(..acc, level: Some(level))
     }
-    #("file", file) -> entomologist.SearchData(..acc, file: Some(file))
-    #("function", function) ->
-      entomologist.SearchData(..acc, function: Some(function))
-    #("occurrence_range_start", occurrence_range_start) -> {
+
+    #("line", line) -> {
+      use line <- result_guard(
+        when_error: int.parse(line),
+        return: fn(_) -> ent.SearchData { acc },
+      )
+
+      ent.SearchData(..acc, line: Some(line))
+    }
+
+    #("arity", arity) -> {
+      use arity <- result_guard(
+        when_error: int.parse(arity),
+        return: fn(_) -> ent.SearchData { acc },
+      )
+
+      ent.SearchData(..acc, arity: Some(arity))
+    }
+
+    #("occurrence_range_start", occurrence_start) -> {
+      let occurrence_start =
+        timestamp.parse_rfc3339(occurrence_start <> "T00:00:00Z")
+
+      use occurrence_start <- result_guard(
+        when_error: occurrence_start,
+        return: fn(_) { acc },
+      )
+
       let occurrence_range_start =
-        timestamp.parse_rfc3339(occurrence_range_start <> "T00:00:00Z")
-      use occurrence_range_start <- result_guard(occurrence_range_start, acc)
-      let occurrence_range_start =
-        timestamp.to_unix_seconds(occurrence_range_start)
+        timestamp.to_unix_seconds(occurrence_start)
         |> float.round
         |> Some
 
-      entomologist.SearchData(..acc, occurrence_range_start:)
+      ent.SearchData(..acc, occurrence_range_start:)
     }
-    #("occurrence_range_end", occurrence_range_end) -> {
-      use occurrence_range_end <- result_guard(
-        timestamp.parse_rfc3339(occurrence_range_end <> "T00:00:00Z"),
-        acc,
+
+    #("occurrence_range_end", occurrence_end) -> {
+      let occurrence_end =
+        timestamp.parse_rfc3339(occurrence_end <> "T00:00:00Z")
+
+      use occurrence_end <- result_guard(
+        when_error: occurrence_end,
+        return: fn(_) { acc },
       )
+
       let occurrence_range_end =
-        timestamp.to_unix_seconds(occurrence_range_end)
+        occurrence_end
+        |> timestamp.to_unix_seconds()
         |> float.round
         |> Some
-      entomologist.SearchData(..acc, occurrence_range_end:)
+
+      ent.SearchData(..acc, occurrence_range_end:)
     }
-    #("level", level) -> {
-      use level <- result_guard(parse_level(level), acc)
-      entomologist.SearchData(..acc, level: Some(level))
-    }
-    #("line", line) -> {
-      use line <- result_guard(int.parse(line), acc)
-      entomologist.SearchData(..acc, line: Some(line))
-    }
-    #("module", module) -> entomologist.SearchData(..acc, module: Some(module))
-    #("resolved", "resolved") ->
-      entomologist.SearchData(..acc, resolved: Some(True))
-    #("resolved", "unresolved") ->
-      entomologist.SearchData(..acc, resolved: Some(False))
-    #("muted", "muted") -> entomologist.SearchData(..acc, muted: Some(True))
-    #("muted", "unmuted") -> entomologist.SearchData(..acc, muted: Some(False))
     _ -> acc
   }
 }
 
-fn parse_level(level: String) -> Result(entomologist.Level, Nil) {
+fn parse_level(level: String) -> Result(ent.Level, Nil) {
   case level {
-    "alert" -> Ok(entomologist.Alert)
-    "critical" -> Ok(entomologist.Critical)
-    "debug" -> Ok(entomologist.Debug)
-    "emergency" -> Ok(entomologist.Emergency)
-    "error" -> Ok(entomologist.ErrorLevel)
-    "info" -> Ok(entomologist.Info)
-    "notice" -> Ok(entomologist.Notice)
-    "warning" -> Ok(entomologist.Warning)
+    "alert" -> Ok(ent.Alert)
+    "critical" -> Ok(ent.Critical)
+    "debug" -> Ok(ent.Debug)
+    "emergency" -> Ok(ent.Emergency)
+    "error" -> Ok(ent.ErrorLevel)
+    "info" -> Ok(ent.Info)
+    "notice" -> Ok(ent.Notice)
+    "warning" -> Ok(ent.Warning)
     _ -> Error(Nil)
   }
 }
