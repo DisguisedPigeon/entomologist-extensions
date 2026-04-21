@@ -2,33 +2,224 @@
 ////
 //// Examples of usage are linked in the function documentation if avaliable
 
-import entomologist as ent
-import entomologist_extensions/internal/ui/html_components
-import gleam/float
+import argv
+import entomologist_extensions/internal/routes
+import entomologist_extensions/internal/sql
+import entomologist_extensions/internal/util
+import gleam/bool
+import gleam/dict
+import gleam/erlang/process
 import gleam/http
 import gleam/http/request.{Request}
 import gleam/int
+import gleam/io
 import gleam/list
-import gleam/option.{Some}
+import gleam/option
+import gleam/otp/actor
+import gleam/otp/static_supervisor as supervisor
+import gleam/result
 import gleam/string
-import gleam/time/timestamp
-import lustre/element
-import pog.{type Connection} as db
+import pog.{type Connection}
+import simplifile.{type FileError}
 import wisp.{type Request, type Response}
 
-/// Auxiliary function.
+type Error {
+  PogError(pog.QueryError)
+}
+
+pub type Table {
+  LogToTag
+  Logs
+  Tags
+  Occurrences
+}
+
+const file_discriminators = [
+  #(LogToTag, "log_to_tag.csv"),
+  #(Logs, "logs.csv"),
+  #(Tags, "tags.csv"),
+  #(Occurrences, "occurrences.csv"),
+]
+
+/// Main function.
 ///
-/// Calls the return() callback when result has value `Error`.
-/// return should be small so callback can be handled by a `use`
-fn result_guard(
-  when_error result: Result(a, b),
-  return return: fn(b) -> c,
-  callback cb: fn(a) -> c,
-) -> c {
-  case result {
-    Ok(a) -> cb(a)
-    Error(v) -> return(v)
+/// It calls the export function, since the rest of the project is designed as a library.
+pub fn main() {
+  let pool_name = process.new_name("postgres_pool")
+  let assert Ok(_) = create_pool(pool_name:)
+
+  let db = pog.named_connection(pool_name)
+
+  case argv.load().arguments {
+    ["export", file_prefix] -> {
+      let content = export(db) |> dict.to_list()
+      let assert Ok(_) =
+        {
+          use #(k, discriminator), #(k2, contents) <- list.map2(file_discriminators, content)
+
+          assert k == k2 as "both should be ordered (?)"
+
+          let file = file_prefix <> discriminator
+
+          let file_written = simplifile.write(to: file, contents:)
+          use Nil <- result.try(file_written)
+
+          Ok(Nil)
+        }
+        |> result.all()
+        |> result.map_error(string.inspect)
+
+      Nil
+    }
+
+    ["help"] | _ ->
+      "Usage: gleam run -m entomologist_extensions export <file prefix>"
+      |> io.println
   }
+}
+
+/// Export the DB to a csv file on the server.
+///
+/// This should never be exposed to te client, since it serves admin purposes only
+pub fn export(connection: pog.Connection) -> dict.Dict(Table, String) {
+  let assert Ok(log_to_tag) =
+    sql.export_log_to_tag(connection)
+    |> result.map_error(PogError)
+    |> log2tag_to_csv
+    as "Log2Tag should be serializable as a csv"
+
+  let assert Ok(logs) =
+    sql.export_logs(connection)
+    |> result.map_error(PogError)
+    |> logs_to_csv
+    as "Logs should be serializable as a csv"
+
+  let assert Ok(tags) =
+    sql.export_tags(connection)
+    |> result.map_error(PogError)
+    |> tags_to_csv
+    as "Tags should be serializable as a csv"
+
+  let assert Ok(occurrences) =
+    sql.export_occurrences(connection)
+    |> result.map_error(PogError)
+    |> occurrences_to_csv
+    as "Occurrences should be serializable as a csv"
+
+  dict.new()
+  |> dict.insert(LogToTag, log_to_tag)
+  |> dict.insert(Logs, logs)
+  |> dict.insert(Tags, tags)
+  |> dict.insert(Occurrences, occurrences)
+}
+
+fn occurrences_to_csv(
+  query_return: Result(pog.Returned(sql.ExportOccurrencesRow), Error),
+) -> Result(String, Error) {
+  use pog.Returned(count: _, rows:) <- result.try(query_return)
+
+  let header = "id;log;timestamp;full_contents"
+
+  list.map(rows, fn(row) {
+    let sql.ExportOccurrencesRow(id:, log:, timestamp:, full_contents:) = row
+
+    [
+      int.to_string(id),
+      int.to_string(log),
+      int.to_string(timestamp),
+      full_contents
+        |> option.map(util.wrap(_, "'"))
+        |> option.unwrap("NONE"),
+    ]
+    |> string.join(";")
+  })
+  |> list.prepend(header)
+  |> string.join("\n")
+  |> Ok
+}
+
+fn tags_to_csv(
+  query_return: Result(pog.Returned(sql.ExportTagsRow), Error),
+) -> Result(String, Error) {
+  use pog.Returned(count: _, rows:) <- result.try(query_return)
+
+  let header = "id;name;logs"
+
+  list.map(rows, fn(v) {
+    let sql.ExportTagsRow(id:, name:, logs:) = v
+    [
+      int.to_string(id),
+      util.wrap(name, "'"),
+      util.list_to_string(logs, int.to_string),
+    ]
+    |> string.join(";")
+  })
+  |> list.prepend(header)
+  |> string.join("\n")
+  |> Ok
+}
+
+fn logs_to_csv(
+  query_return: Result(pog.Returned(sql.ExportLogsRow), Error),
+) -> Result(String, Error) {
+  use pog.Returned(count: _, rows:) <- result.try(query_return)
+  let header =
+    "id;message;level;module;function;arity;file;line;last_occurrence;resolved;muted;tags;occurrences"
+
+  list.map(rows, fn(v) {
+    let sql.ExportLogsRow(
+      id:,
+      message:,
+      level:,
+      module:,
+      function:,
+      arity:,
+      file:,
+      line:,
+      last_occurrence:,
+      resolved:,
+      muted:,
+      tags:,
+      occurrences:,
+    ) = v
+
+    [
+      int.to_string(id),
+      util.wrap(message, "'"),
+      util.level_encoder(level),
+      util.wrap(module, "'"),
+      util.wrap(function, "'"),
+      int.to_string(arity),
+      util.wrap(file, "'"),
+      int.to_string(line),
+      int.to_string(last_occurrence),
+      bool.to_string(resolved),
+      bool.to_string(muted),
+      util.list_to_string(tags, int.to_string),
+      util.list_to_string(occurrences, int.to_string),
+    ]
+    |> string.join(";")
+  })
+  |> list.prepend(header)
+  |> string.join("\n")
+  |> Ok
+}
+
+fn log2tag_to_csv(
+  query_return: Result(pog.Returned(sql.ExportLogToTagRow), Error),
+) -> Result(String, Error) {
+  use pog.Returned(count: _, rows:) <- result.try(query_return)
+  let header = "log;tag"
+
+  list.map(rows, fn(v) {
+    let sql.ExportLogToTagRow(log:, tag:) = v
+
+    [int.to_string(log), int.to_string(tag)]
+    |> string.join(";")
+  })
+  |> list.prepend(header)
+  |> string.join("\n")
+  |> Ok
 }
 
 /// Middleware to intercept http requests to entomologist specific paths
