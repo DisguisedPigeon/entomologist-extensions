@@ -10,6 +10,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres
+        ports:
+          - 5431:5432
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+          POSTGRES_DB: test
+        options: >-
+            --health-cmd pg_isready
+            --health-interval 10s
+            --health-timeout 5s
+            --health-retries 5
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
@@ -20,4 +34,8 @@ jobs:
           # elixir-version: "1"
       - run: gleam deps download
       - run: gleam test
+        env:
+          POSTGRES_HOST: localhost
+          POSTGRES_DB: test
+          POSTGRES_PORT: ${{ job.services.postgres.ports[5431] }}
       - run: gleam format --check src test

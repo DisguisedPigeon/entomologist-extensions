@@ -20,7 +20,7 @@ import gleam/otp/static_supervisor as supervisor
 import gleam/result
 import gleam/string
 import pog.{type Connection}
-import simplifile.{type FileError}
+import simplifile
 import wisp.{type Request, type Response}
 
 type Error {
@@ -55,7 +55,10 @@ pub fn main() {
       let content = export(db) |> dict.to_list()
       let assert Ok(_) =
         {
-          use #(k, discriminator), #(k2, contents) <- list.map2(file_discriminators, content)
+          use #(k, discriminator), #(k2, contents) <- list.map2(
+            file_discriminators,
+            content,
+          )
 
           assert k == k2 as "both should be ordered (?)"
 

@@ -2,20 +2,14 @@ import birdie
 import entomologist
 import entomologist/internal/logger_api
 import entomologist_extensions.{LogToTag, Logs, Occurrences, Tags}
-import envoy
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/erlang/charlist
 import gleam/erlang/process
-import gleam/int
-import gleam/list
 import gleam/option
 import gleam/otp/static_supervisor as supervisor
-import gleam/result
 import gleam/string
 import gleeunit
-import gleeunit/should
-import logging
 import pog
 
 pub fn main() -> Nil {
@@ -25,8 +19,6 @@ pub fn main() -> Nil {
   let connection = pog.named_connection(pool_name)
   set_connection(pool_name)
 
-  logging.configure()
-  logging.set_level(logging.Debug)
   let assert Ok(Nil) = entomologist.configure(connection)
     as "configuration should end successfully"
 
@@ -42,12 +34,89 @@ pub fn main() -> Nil {
 }
 
 pub fn exporting_generation_test() {
+  // to avoid non-deterministic behaviour, I have to log by report
+  let log1 = fn(timestamp: Int) {
+    to_dynamic(
+      dict.from_list([
+        #(
+          to_dynamic(Meta),
+          to_dynamic(
+            dict.from_list([#(to_dynamic(Time), to_dynamic(timestamp))]),
+          ),
+        ),
+        #(
+          to_dynamic(MsgDict),
+          to_dynamic(
+            dict.from_list([
+              #(Function, to_dynamic("fn")),
+              #(Module, to_dynamic("mod")),
+              #(Line, to_dynamic(10)),
+              #(Message, to_dynamic("Ligma")),
+            ]),
+          ),
+        ),
+        #(to_dynamic(Level), to_dynamic(charlist.from_string("info"))),
+        #(to_dynamic(Rest), to_dynamic("{}")),
+      ]),
+    )
+  }
+
+  let log2 =
+    to_dynamic(
+      dict.from_list([
+        #(
+          to_dynamic(Meta),
+          to_dynamic(dict.from_list([#(to_dynamic(Time), to_dynamic(5))])),
+        ),
+        #(
+          to_dynamic(MsgDict),
+          to_dynamic(
+            dict.from_list([
+              #(Function, to_dynamic("fn")),
+              #(Module, to_dynamic("mod")),
+              #(Line, to_dynamic(10)),
+              #(Message, to_dynamic("Ballz")),
+            ]),
+          ),
+        ),
+        #(to_dynamic(Level), to_dynamic(charlist.from_string("critical"))),
+        #(to_dynamic(Rest), to_dynamic("{}")),
+      ]),
+    )
+  let log3 =
+    to_dynamic(
+      dict.from_list([
+        #(
+          to_dynamic(Meta),
+          to_dynamic(dict.from_list([#(to_dynamic(Time), to_dynamic(10))])),
+        ),
+        #(
+          to_dynamic(MsgDict),
+          to_dynamic(
+            dict.from_list([
+              #(Function, to_dynamic("fn")),
+              #(Module, to_dynamic("mod")),
+              #(Line, to_dynamic(10)),
+              #(Message, to_dynamic("hallo")),
+            ]),
+          ),
+        ),
+        #(to_dynamic(Level), to_dynamic(charlist.from_string("debug"))),
+        #(to_dynamic(Rest), to_dynamic("{}")),
+      ]),
+    )
+
   let connection = get_connection() |> pog.named_connection
 
-  list.map([1, 2, 3, 4], fn(_) { logging.log(logging.Info, "Sample log") })
+  // Oops, relying on my own internal modules
+  // This is bad
+  log1(1) |> logger_api.save_to_db(connection)
+  log1(2) |> logger_api.save_to_db(connection)
+  log1(6) |> logger_api.save_to_db(connection)
+  log1(10) |> logger_api.save_to_db(connection)
 
-  logging.log(logging.Error, "Sample log 2")
-  logging.log(logging.Debug, "Sample log 3")
+  log2 |> logger_api.save_to_db(connection)
+  log3 |> logger_api.save_to_db(connection)
 
   let assert Ok([log, log2, _]) = entomologist.show(connection)
 
@@ -205,8 +274,23 @@ fn create_pool(pool_name pool_name: process.Name(pog.Message)) {
   |> supervisor.start()
 }
 
+type AuxAtoms {
+  Meta
+  MsgDict
+  Level
+  Rest
+  Time
+  Function
+  Module
+  Line
+  Message
+}
+
 @external(erlang, "test_ffi", "set")
 fn set_connection(connection: process.Name(pog.Message)) -> Nil
 
 @external(erlang, "test_ffi", "get")
 fn get_connection() -> process.Name(pog.Message)
+
+@external(erlang, "test_ffi", "id")
+fn to_dynamic(val: t) -> decode.Dynamic
