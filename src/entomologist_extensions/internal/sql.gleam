@@ -5,6 +5,7 @@
 ////
 
 import gleam/dynamic/decode
+import gleam/json.{type Json}
 import gleam/option.{type Option}
 import pog
 
@@ -209,6 +210,134 @@ group by t.id;
   |> pog.execute(db)
 }
 
+/// Runs the `insert_log` query
+/// defined in `./src/entomologist_extensions/internal/sql/insert_log.sql`.
+///
+/// > 🐿️ This function was generated automatically using v4.6.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn insert_log(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+  arg_3: Level,
+  arg_4: String,
+  arg_5: String,
+  arg_6: Int,
+  arg_7: String,
+  arg_8: Int,
+  arg_9: Int,
+  arg_10: Bool,
+  arg_11: Bool,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "insert into logs (
+    id, message, level, module, function, arity, file, line, last_occurrence, resolved, muted
+) values ( $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11 )
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.parameter(level_encoder(arg_3))
+  |> pog.parameter(pog.text(arg_4))
+  |> pog.parameter(pog.text(arg_5))
+  |> pog.parameter(pog.int(arg_6))
+  |> pog.parameter(pog.text(arg_7))
+  |> pog.parameter(pog.int(arg_8))
+  |> pog.parameter(pog.int(arg_9))
+  |> pog.parameter(pog.bool(arg_10))
+  |> pog.parameter(pog.bool(arg_11))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// Runs the `insert_log_to_tag` query
+/// defined in `./src/entomologist_extensions/internal/sql/insert_log_to_tag.sql`.
+///
+/// > 🐿️ This function was generated automatically using v4.6.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn insert_log_to_tag(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "insert into log2tag (log, tag)
+values ( $1, $2 )
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// A row you get from running the `insert_occurrence` query
+/// defined in `./src/entomologist_extensions/internal/sql/insert_occurrence.sql`.
+///
+/// > 🐿️ This type definition was generated automatically using v4.6.0 of the
+/// > [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub type InsertOccurrenceRow {
+  InsertOccurrenceRow(id: Int)
+}
+
+/// Runs the `insert_occurrence` query
+/// defined in `./src/entomologist_extensions/internal/sql/insert_occurrence.sql`.
+///
+/// > 🐿️ This function was generated automatically using v4.6.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn insert_occurrence(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: Int,
+  arg_3: Json,
+) -> Result(pog.Returned(InsertOccurrenceRow), pog.QueryError) {
+  let decoder = {
+    use id <- decode.field(0, decode.int)
+    decode.success(InsertOccurrenceRow(id:))
+  }
+
+  "insert into
+    occurrences(log, timestamp, full_contents)
+values
+    ($1, $2, $3)
+returning id;
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.int(arg_2))
+  |> pog.parameter(pog.text(json.to_string(arg_3)))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
+/// Runs the `insert_tag` query
+/// defined in `./src/entomologist_extensions/internal/sql/insert_tag.sql`.
+///
+/// > 🐿️ This function was generated automatically using v4.6.0 of
+/// > the [squirrel package](https://github.com/giacomocavalieri/squirrel).
+///
+pub fn insert_tag(
+  db: pog.Connection,
+  arg_1: Int,
+  arg_2: String,
+) -> Result(pog.Returned(Nil), pog.QueryError) {
+  let decoder = decode.map(decode.dynamic, fn(_) { Nil })
+
+  "insert into tags (id, name) values ($1, $2)
+"
+  |> pog.query
+  |> pog.parameter(pog.int(arg_1))
+  |> pog.parameter(pog.text(arg_2))
+  |> pog.returning(decoder)
+  |> pog.execute(db)
+}
+
 // --- Enums -------------------------------------------------------------------
 
 /// Corresponds to the Postgres `level` enum.
@@ -240,4 +369,18 @@ fn level_decoder() -> decode.Decoder(Level) {
     "emergency" -> decode.success(Emergency)
     _ -> decode.failure(Debug, "Level")
   }
+}
+
+fn level_encoder(level) -> pog.Value {
+  case level {
+    Debug -> "debug"
+    Info -> "info"
+    Notice -> "notice"
+    Warning -> "warning"
+    Error -> "error"
+    Critical -> "critical"
+    Alert -> "alert"
+    Emergency -> "emergency"
+  }
+  |> pog.text
 }

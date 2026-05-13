@@ -5,7 +5,9 @@
 import argv
 import entomologist_extensions/internal/routes
 import entomologist_extensions/internal/sql
-import entomologist_extensions/internal/util
+import entomologist_extensions/internal/util.{
+  parse_error_msg, result_with_message,
+}
 import gleam/bool
 import gleam/dict
 import gleam/erlang/process
@@ -13,12 +15,14 @@ import gleam/http
 import gleam/http/request.{Request}
 import gleam/int
 import gleam/io
+import gleam/json
 import gleam/list
 import gleam/option
 import gleam/otp/actor
 import gleam/otp/static_supervisor as supervisor
 import gleam/result
 import gleam/string
+import gsv
 import pog.{type Connection}
 import simplifile
 import wisp.{type Request, type Response}
@@ -32,6 +36,53 @@ pub type Table {
   Logs
   Tags
   Occurrences
+}
+
+pub type LogRow {
+  LogRow(
+    id: Int,
+    message: String,
+    level: sql.Level,
+    module: String,
+    function: String,
+    arity: Int,
+    file: String,
+    line: Int,
+    last_occurrence: Int,
+    resolved: Bool,
+    muted: Bool,
+  )
+}
+
+fn default_logrow() {
+  LogRow(
+    id: -1,
+    message: "",
+    level: sql.Info,
+    module: "",
+    function: "",
+    arity: -1,
+    file: "",
+    line: -1,
+    last_occurrence: -1,
+    resolved: False,
+    muted: False,
+  )
+}
+
+pub type OccurrenceRow {
+  OccurrenceRow(id: Int, log: Int, timestamp: Int, full_contents: String)
+}
+
+fn default_ocurrencerow() {
+  OccurrenceRow(id: -1, log: -1, timestamp: -1, full_contents: "")
+}
+
+pub type SqlData {
+  Log2Tag(List(#(Int, Int)))
+  Log(List(LogRow))
+  Tag(List(#(Int, String)))
+  Occurrence(List(OccurrenceRow))
 }
 
 const file_discriminators = [
@@ -75,15 +126,355 @@ pub fn main() {
       Nil
     }
 
+    ["import", file_prefix] -> {
+      let result = {
+        use string_data <- result.try(read(file_prefix))
+
+        let parsed_data =
+          dict.fold(string_data, Ok([]), fn(acc, key, value) {
+            // error short-circuit
+            use data <- result.try(acc)
+
+            use row <- result.try(parse_csv(key, value))
+            [row, ..data] |> Ok
+          })
+          |> result.map_error(fn(e) { "Error parsing data: " <> e })
+
+        use data <- result.try(parsed_data)
+        insert_data(data)
+      }
+      use <- result.lazy_unwrap(result)
+
+      let assert Error(s) = result
+      panic as s
+    }
+
     ["help"] | _ ->
       "Usage: gleam run -m entomologist_extensions export <file prefix>"
       |> io.println
   }
 }
 
+fn read(prefix: String) -> Result(dict.Dict(Table, String), String) {
+  list.map(file_discriminators, fn(v) {
+    let #(k, discriminator) = v
+
+    let file = prefix <> discriminator
+
+    let contents = simplifile.read(from: file)
+    use contents <- result.try(contents)
+    Ok(#(k, contents))
+  })
+  |> result.all()
+  |> result.map(dict.from_list)
+  |> result.map_error(fn(e) { string.inspect(e) })
+}
+
+fn parse_csv(key: Table, val: String) -> Result(SqlData, String) {
+  use rows <- result.try(
+    gsv.to_dicts(val, ";")
+    |> result.map_error(fn(e) {
+      case e {
+        gsv.UnescapedQuote(line:) ->
+          "Found unescaped quote on line " <> line |> int.to_string
+        gsv.MissingClosingQuote(starting_line:) ->
+          "Found unmatched quote on line " <> starting_line |> int.to_string
+      }
+    }),
+  )
+
+  case key {
+    LogToTag -> into_log_to_tag(rows) |> result.all() |> result.map(Log2Tag)
+    Logs -> into_logs(rows) |> result.all() |> result.map(Log)
+    Tags -> into_tags(rows) |> result.all() |> result.map(Tag)
+    Occurrences ->
+      into_occurrences(rows) |> result.all() |> result.map(Occurrence)
+  }
+}
+
+fn into_occurrences(
+  rows: List(dict.Dict(String, String)),
+) -> List(Result(OccurrenceRow, String)) {
+  use row <- list.map(rows)
+  use acc, key, value <- dict.fold(row, from: Ok(default_ocurrencerow()))
+
+  use acc <- result.try(acc)
+
+  case key {
+    "full_contents" -> OccurrenceRow(..acc, full_contents: value) |> Ok
+
+    "id" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log", "int", value))
+
+      use id <- result.try(value)
+      OccurrenceRow(..acc, id:) |> Ok
+    }
+    "log" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log", "int", value))
+
+      use log <- result.try(value)
+      OccurrenceRow(..acc, log:) |> Ok
+    }
+    "timestamp" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log", "int", value))
+
+      use timestamp <- result.try(value)
+      OccurrenceRow(..acc, timestamp:) |> Ok
+    }
+
+    _ ->
+      Error(
+        "ERROR: CSV format failure.\tUnexpected field `"
+        <> key
+        <> "` while parsing occurrences",
+      )
+  }
+}
+
+fn into_tags(
+  rows: List(dict.Dict(String, String)),
+) -> List(Result(#(Int, String), String)) {
+  use row <- list.map(rows)
+  use acc, key, value <- dict.fold(row, from: Ok(#(-1, "")))
+
+  use acc <- result.try(acc)
+
+  case key {
+    "name" -> Ok(#(acc.0, value))
+    "id" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log", "int", value))
+
+      use value <- result.try(value)
+      #(value, acc.1) |> Ok
+    }
+
+    "logs" -> Ok(acc)
+
+    _ ->
+      Error(
+        "ERROR: CSV format failure.\tUnexpected field `"
+        <> key
+        <> "` while parsing tags",
+      )
+  }
+}
+
+fn into_log_to_tag(
+  rows: List(dict.Dict(String, String)),
+) -> List(Result(#(Int, Int), String)) {
+  use row <- list.map(rows)
+  use acc, key, value <- dict.fold(row, from: Ok(#(-1, -1)))
+
+  use acc <- result.try(acc)
+
+  case key {
+    "log" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log", "int", value))
+
+      use value <- result.try(value)
+      #(value, acc.1) |> Ok
+    }
+    "tag" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("tag", "int", value))
+
+      use value <- result.try(value)
+      Ok(#(acc.0, value))
+    }
+    _ ->
+      Error(
+        "ERROR: CSV format failure.\tUnexpected field `"
+        <> key
+        <> "` log to tag",
+      )
+  }
+}
+
+fn into_logs(
+  rows: List(dict.Dict(String, String)),
+) -> List(Result(LogRow, String)) {
+  use row <- list.map(rows)
+  use acc, key, value <- dict.fold(row, from: Ok(default_logrow()))
+
+  use acc <- result.try(acc)
+
+  // id: Int,
+  // message: String,
+  // level: sql.Level,
+  // module: String,
+  // function: String,
+  // arity: Int,
+  // file: String,
+  // line: Int,
+  // last_occurrence: Int,
+  // resolved: Bool,
+  // muted: Bool,
+
+  case key {
+    //Duplicate data. Stored in log2tag and occurrence.log
+    //It's there to ease tooling usage with the csv
+    "tags" -> Ok(acc)
+    "occurrences" -> Ok(acc)
+
+    "message" -> LogRow(..acc, message: value) |> Ok
+    "module" -> LogRow(..acc, module: value) |> Ok
+    "function" -> LogRow(..acc, function: value) |> Ok
+    "file" -> LogRow(..acc, file: value) |> Ok
+
+    "resolved" ->
+      util.bool_parser(value, key)
+      |> result.map(fn(resolved) { LogRow(..acc, resolved:) })
+
+    "muted" ->
+      util.bool_parser(value, key)
+      |> result.map(fn(muted) { LogRow(..acc, muted:) })
+
+    "level" ->
+      util.level_parser(value)
+      |> result.map(fn(level) { LogRow(..acc, level:) })
+
+    "id" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log id", "int", value))
+
+      use value <- result.try(value)
+      LogRow(..acc, id: value) |> Ok
+    }
+    "arity" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log arity", "int", value))
+
+      use value <- result.try(value)
+      LogRow(..acc, arity: value) |> Ok
+    }
+    "line" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("log line", "int", value))
+
+      use value <- result.try(value)
+      LogRow(..acc, line: value) |> Ok
+    }
+    "last_occurrence" -> {
+      let value =
+        int.parse(value)
+        |> result_with_message(parse_error_msg("last occurrence", "int", value))
+
+      use value <- result.try(value)
+      LogRow(..acc, last_occurrence: value) |> Ok
+    }
+    _ ->
+      Error(
+        "ERROR: CSV format failure.\tUnexpected field `"
+        <> key
+        <> "` while parsing logs",
+      )
+  }
+}
+
+fn insert_data(data: List(SqlData)) -> Result(Nil, String) {
+  let pool_name = process.new_name("postgres_pool")
+  let assert Ok(_) = create_pool(pool_name:)
+
+  let conn = pog.named_connection(pool_name)
+
+  list.map(data, fn(v) {
+    case v {
+      Log2Tag(v) -> insert_log_to_tag(v, conn)
+      Log(v) -> insert_logs(v, conn)
+      Tag(v) -> insert_tags(v, conn)
+      Occurrence(v) -> insert_occurrences(v, conn)
+    }
+  })
+  |> result.all()
+  |> result.map(fn(_) { Nil })
+}
+
+fn insert_occurrences(
+  v: List(OccurrenceRow),
+  conn: Connection,
+) -> Result(Nil, String) {
+  case v {
+    [] -> Ok(Nil)
+    [OccurrenceRow(..) as occurrence, ..rest] ->
+      sql.insert_occurrence(
+        conn,
+        occurrence.log,
+        occurrence.timestamp,
+        // TODO: This is probably stupid
+        occurrence.full_contents |> json.string,
+      )
+      |> result.map_error(util.describe_error(_, "insert_logs"))
+      |> result.try(fn(_) { insert_occurrences(rest, conn) })
+  }
+}
+
+fn insert_tags(
+  v: List(#(Int, String)),
+  conn: Connection,
+) -> Result(Nil, String) {
+  case v {
+    [] -> Ok(Nil)
+    [#(id, name), ..rest] ->
+      sql.insert_tag(conn, id, name)
+      |> result.map_error(util.describe_error(_, "insert_logs"))
+      |> result.try(fn(_) { insert_tags(rest, conn) })
+  }
+}
+
+fn insert_log_to_tag(
+  v: List(#(Int, Int)),
+  conn: Connection,
+) -> Result(Nil, String) {
+  case v {
+    [] -> Ok(Nil)
+    [#(log, tag), ..rest] ->
+      sql.insert_log_to_tag(conn, log, tag)
+      |> result.map_error(util.describe_error(_, "insert_log_to_tag"))
+      |> result.try(fn(_) { insert_log_to_tag(rest, conn) })
+  }
+}
+
+fn insert_logs(v: List(LogRow), conn: pog.Connection) -> Result(Nil, String) {
+  case v {
+    [] -> Ok(Nil)
+    [LogRow(..) as log, ..rest] ->
+      sql.insert_log(
+        conn,
+        log.id,
+        log.message,
+        log.level,
+        log.module,
+        log.function,
+        log.arity,
+        log.file,
+        log.line,
+        log.last_occurrence,
+        log.resolved,
+        log.muted,
+      )
+      |> result.map_error(util.describe_error(_, "insert_logs"))
+      |> result.try(fn(_) { insert_logs(rest, conn) })
+  }
+}
+
 /// Export the DB to a csv file on the server.
 ///
-/// This should never be exposed to te client, since it serves admin purposes only
+/// This should never be exposed to te client,
+/// since it serves admin purposes only
 pub fn export(connection: pog.Connection) -> dict.Dict(Table, String) {
   let assert Ok(log_to_tag) =
     sql.export_log_to_tag(connection)
@@ -121,23 +512,23 @@ fn occurrences_to_csv(
 ) -> Result(String, Error) {
   use pog.Returned(count: _, rows:) <- result.try(query_return)
 
-  let header = "id;log;timestamp;full_contents"
-
   list.map(rows, fn(row) {
-    let sql.ExportOccurrencesRow(id:, log:, timestamp:, full_contents:) = row
-
     [
-      int.to_string(id),
-      int.to_string(log),
-      int.to_string(timestamp),
-      full_contents
-        |> option.map(util.wrap(_, "'"))
-        |> option.unwrap("NONE"),
+      #("id", int.to_string(row.id)),
+      #("log", int.to_string(row.log)),
+      #("timestamp", int.to_string(row.timestamp)),
+      #(
+        "full_contents",
+        row.full_contents
+          |> option.map(string.remove_prefix(_, "\""))
+          |> option.map(string.remove_suffix(_, "\""))
+          |> option.unwrap("NONE"),
+      ),
     ]
-    |> string.join(";")
+    |> list.reverse
+    |> dict.from_list
   })
-  |> list.prepend(header)
-  |> string.join("\n")
+  |> gsv.from_dicts(separator: ";", line_ending: gsv.Windows)
   |> Ok
 }
 
@@ -146,19 +537,15 @@ fn tags_to_csv(
 ) -> Result(String, Error) {
   use pog.Returned(count: _, rows:) <- result.try(query_return)
 
-  let header = "id;name;logs"
-
   list.map(rows, fn(v) {
-    let sql.ExportTagsRow(id:, name:, logs:) = v
     [
-      int.to_string(id),
-      util.wrap(name, "'"),
-      util.list_to_string(logs, int.to_string),
+      #("id", int.to_string(v.id)),
+      #("name", v.name),
+      #("logs", util.list_to_string(v.logs, int.to_string)),
     ]
-    |> string.join(";")
+    |> dict.from_list
   })
-  |> list.prepend(header)
-  |> string.join("\n")
+  |> gsv.from_dicts(separator: ";", line_ending: gsv.Windows)
   |> Ok
 }
 
@@ -166,45 +553,30 @@ fn logs_to_csv(
   query_return: Result(pog.Returned(sql.ExportLogsRow), Error),
 ) -> Result(String, Error) {
   use pog.Returned(count: _, rows:) <- result.try(query_return)
-  let header =
-    "id;message;level;module;function;arity;file;line;last_occurrence;resolved;muted;tags;occurrences"
 
-  list.map(rows, fn(v) {
-    let sql.ExportLogsRow(
-      id:,
-      message:,
-      level:,
-      module:,
-      function:,
-      arity:,
-      file:,
-      line:,
-      last_occurrence:,
-      resolved:,
-      muted:,
-      tags:,
-      occurrences:,
-    ) = v
-
+  list.map(rows, fn(row) {
     [
-      int.to_string(id),
-      util.wrap(message, "'"),
-      util.level_encoder(level),
-      util.wrap(module, "'"),
-      util.wrap(function, "'"),
-      int.to_string(arity),
-      util.wrap(file, "'"),
-      int.to_string(line),
-      int.to_string(last_occurrence),
-      bool.to_string(resolved),
-      bool.to_string(muted),
-      util.list_to_string(tags, int.to_string),
-      util.list_to_string(occurrences, int.to_string),
+      #("message", row.message),
+      #("module", row.module),
+      #("function", row.function),
+      #("file", row.file),
+
+      #("tags", util.list_to_string(row.tags, int.to_string)),
+      #("occurrences", util.list_to_string(row.occurrences, int.to_string)),
+
+      #("level", util.level_encoder(row.level)),
+
+      #("id", int.to_string(row.id)),
+      #("arity", int.to_string(row.arity)),
+      #("line", int.to_string(row.line)),
+      #("last_occurrence", int.to_string(row.last_occurrence)),
+
+      #("resolved", bool.to_string(row.resolved)),
+      #("muted", bool.to_string(row.muted)),
     ]
-    |> string.join(";")
+    |> dict.from_list
   })
-  |> list.prepend(header)
-  |> string.join("\n")
+  |> gsv.from_dicts(separator: ";", line_ending: gsv.Windows)
   |> Ok
 }
 
@@ -212,16 +584,15 @@ fn log2tag_to_csv(
   query_return: Result(pog.Returned(sql.ExportLogToTagRow), Error),
 ) -> Result(String, Error) {
   use pog.Returned(count: _, rows:) <- result.try(query_return)
-  let header = "log;tag"
 
-  list.map(rows, fn(v) {
-    let sql.ExportLogToTagRow(log:, tag:) = v
-
-    [int.to_string(log), int.to_string(tag)]
-    |> string.join(";")
+  list.map(rows, fn(row) {
+    [
+      #("log", int.to_string(row.log)),
+      #("tag", int.to_string(row.tag)),
+    ]
+    |> dict.from_list
   })
-  |> list.prepend(header)
-  |> string.join("\n")
+  |> gsv.from_dicts(separator: ";", line_ending: gsv.Windows)
   |> Ok
 }
 

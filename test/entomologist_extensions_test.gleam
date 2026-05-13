@@ -107,6 +107,7 @@ pub fn exporting_generation_test() {
     )
 
   let connection = get_connection() |> pog.named_connection
+  let _ = pog.execute(pog.query("BEGIN"), connection)
 
   // Oops, relying on my own internal modules
   // This is bad
@@ -151,6 +152,9 @@ pub fn exporting_generation_test() {
     }
   })
   |> birdie.snap(title: "exporting generation")
+
+  let _ = pog.execute(pog.query("rollback"), connection)
+  Nil
 }
 
 /// DB setup
