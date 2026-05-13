@@ -14,7 +14,7 @@ jobs:
       postgres:
         image: postgres
         ports:
-          - 5431:5432
+          - 5432:5432
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
@@ -25,17 +25,25 @@ jobs:
             --health-timeout 5s
             --health-retries 5
     steps:
-      - uses: actions/checkout@v4
-      - uses: erlef/setup-beam@v1
+      - name: Code checkout
+        uses: actions/checkout@v4
+
+      - name: BEAM setup
+        uses: erlef/setup-beam@v1
         with:
           otp-version: "27.1.2"
-          gleam-version: "1.14.0"
+          gleam-version: "1.16.0"
           rebar3-version: "3"
-          # elixir-version: "1"
-      - run: gleam deps download
-      - run: gleam test
+
+      - name: Dependencies download
+        run: gleam deps download
+
+      - name: Formatting check
+        run: find . -type f -not -path "./build/*" -not -name "sql.gleam" -name "*.gleam" | xargs gleam format --check
+
+      - name: Test execution
+        run: gleam test
         env:
           POSTGRES_HOST: localhost
           POSTGRES_DB: test
-          POSTGRES_PORT: ${{ job.services.postgres.ports[5431] }}
-      - run: gleam format --check src test
+          POSTGRES_PORT: ${{ job.services.postgres.ports[5432] }}
